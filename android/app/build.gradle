@@ -22,6 +22,30 @@ if (flutterVersionName == null) {
     flutterVersionName = '1.0'
 }
 
+// --- release signing inputs (begin) -----------------------------------------
+// The release keystore is a real secret and never lives in this repo. It is read
+// from android/key.properties (gitignored) or from POCKR_* environment variables,
+// which is how scripts/build_apk.sh hands it to the Docker build. key.properties
+// wins so a local file overrides a stale variable in your shell.
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('key.properties')
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withReader('UTF-8') { reader ->
+        keystoreProperties.load(reader)
+    }
+}
+def signingInput = { String property, String envVar ->
+    def value = keystoreProperties.getProperty(property) ?: System.getenv(envVar)
+    // A blank value counts as missing. Passwords are otherwise used exactly as given.
+    return (value != null && !value.trim().isEmpty()) ? value : null
+}
+def releaseStoreFile     = signingInput('storeFile',     'POCKR_KEYSTORE_FILE')
+def releaseStorePassword = signingInput('storePassword', 'POCKR_KEYSTORE_PASSWORD')
+def releaseKeyAlias      = signingInput('keyAlias',      'POCKR_KEY_ALIAS')
+def releaseKeyPassword   = signingInput('keyPassword',   'POCKR_KEY_PASSWORD')
+def hasReleaseSigning = releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
+// --- release signing inputs (end) -------------------------------------------
+
 android {
     namespace "com.example.dockerapp"
     compileSdk 34
@@ -54,11 +78,22 @@ android {
     }
 
     signingConfigs {
+        // Committed on purpose: a stable signature is what lets `adb install -r` upgrade a
+        // debug build in place (ISSUES.md #10). Its password is the public Android default,
+        // so anyone can sign with it. It must never sign a release.
         debug {
             storeFile file("debug.keystore")
             storePassword "android"
             keyAlias "debug"
             keyPassword "android"
+        }
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
         }
     }
 
@@ -67,7 +102,11 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            signingConfig signingConfigs.debug
+            // No fallback to the debug config. With no release key the build is stopped by
+            // the check below instead of shipping an APK anyone could re-sign.
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             shrinkResources false
         }
@@ -81,6 +120,29 @@ android {
         }
     }
 }
+
+// --- release signing guard (begin) -----------------------------------------
+// Fail fast, and say why, when a release APK/AAB is requested without the release key.
+gradle.taskGraph.whenReady { graph ->
+    def releaseRequested = graph.allTasks.any { task ->
+        task.project == project && task.name ==~ /^(assemble|bundle|package).*Release$/
+    }
+    if (!releaseRequested) {
+        return
+    }
+    if (!hasReleaseSigning) {
+        throw new GradleException(
+            'Release build needs the release keystore. Set storeFile, storePassword, keyAlias ' +
+            'and keyPassword in android/key.properties, or POCKR_KEYSTORE_FILE, ' +
+            'POCKR_KEYSTORE_PASSWORD, POCKR_KEY_ALIAS and POCKR_KEY_PASSWORD in the ' +
+            'environment. Create a keystore with scripts/make_release_keystore.sh. ' +
+            'Release builds are never signed with debug.keystore.')
+    }
+    if (!file(releaseStoreFile).exists()) {
+        throw new GradleException("Release keystore not found: ${releaseStoreFile}")
+    }
+}
+// --- release signing guard (end) --------------------------------------------
 
 flutter {
     source '../..'
