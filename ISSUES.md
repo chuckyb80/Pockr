@@ -73,6 +73,7 @@ Flutter UI → MethodChannel → VmManager.kt → ProcessBuilder(libqemu.so) →
 ### 10. APK signature changes on each build (INSTALL_FAILED_UPDATE_INCOMPATIBLE)
 **Issue:** Each Gradle debug build uses a different random key. `adb install -r` fails with signature mismatch.
 **Fix:** Added `android/app/debug.keystore` (committed) and configured `signingConfigs.debug` to always use it. ✅
+**Follow-up (2026-10-01):** That fix also signed *release* builds with the public debug key, so anyone could build an APK Android accepts as an update. Release builds now require a separate keystore kept outside the repo and fail without one; debug keeps the committed key. See `scripts/README.md`, Signing. ✅
 
 ### 11. MIUI blocking ADB install
 **Device:** POCO M4 Pro (MIUI V816)

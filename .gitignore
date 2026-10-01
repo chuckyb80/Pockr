@@ -6,8 +6,11 @@ android/app/src/main/assets/vm/base.qcow2.gz
 # Credentials and secrets only
 *.jks
 *.apk
-# debug.keystore intentionally committed for consistent APK signing across builds
-# release.keystore
+# Release signing material never goes in the repo. The one keystore that IS committed is
+# the public debug.keystore, kept so debug builds upgrade in place with `adb install -r`.
+android/key.properties
+*.keystore
+!android/app/debug.keystore
 .env
 *.env.*
 *_credentials*

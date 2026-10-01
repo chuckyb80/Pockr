@@ -29,6 +29,32 @@ Builds a `docker-app-builder` Docker image (Ubuntu 22.04 + JDK 17 + Android SDK 
 
 **Builder image is cached** — subsequent builds take ~2–3 minutes.
 
+### Signing
+
+| Build | Signed with | Why |
+|---|---|---|
+| debug | `android/app/debug.keystore` (committed) | Stable signature, so `adb install -r` upgrades in place. The key is public. |
+| release | Your release keystore, **outside the repo** | A public key must never sign something users install. |
+
+A release build refuses to run without the release key. It never falls back to `debug.keystore`.
+
+```bash
+./scripts/make_release_keystore.sh        # once; writes ~/.pockr/release.keystore (alias: pockr)
+
+export POCKR_KEYSTORE_FILE=$HOME/.pockr/release.keystore
+export POCKR_KEYSTORE_PASSWORD=...        # set from your password manager, not typed inline
+export POCKR_KEY_PASSWORD=...
+export POCKR_KEY_ALIAS=pockr
+./scripts/build_apk.sh release
+```
+
+Back up the keystore and both passwords. Android only installs an update signed with the same key, so a lost
+keystore strands every existing install. For a non-Docker Gradle build, put `storeFile`, `storePassword`,
+`keyAlias` and `keyPassword` in `android/key.properties` (gitignored) instead of the environment.
+
+Releases published before this change were signed with the debug key. Installs of those need one uninstall and
+reinstall to move to the release key.
+
 ---
 
 ## `build_alpine_base.sh`
